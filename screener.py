@@ -149,13 +149,23 @@ def fetch(ticker: str, interval: str, period: str) -> pd.DataFrame:
         return None
 
 
+def normalize_ticker(t: str) -> str:
+    """IDX stocks need a .JK suffix for yfinance (e.g. BMRI -> BMRI.JK).
+    Leaves tickers that already have a suffix (e.g. .JK, .US) untouched."""
+    t = t.strip().upper()
+    if "." not in t:
+        t = f"{t}.JK"
+    return t
+
+
 def get_tickers():
     r = requests.get(WEBAPP_URL, params={"secret": API_SECRET}, timeout=30)
     r.raise_for_status()
     data = r.json()
     if "error" in data:
         raise RuntimeError(data["error"])
-    return data.get("tickers", [])
+    raw = data.get("tickers", [])
+    return [normalize_ticker(t) for t in raw if t and t.strip()]
 
 
 def push_results(rows):
@@ -168,7 +178,7 @@ def push_results(rows):
 
 
 def main():
-    tickers = [t.strip() for t in get_tickers() if t and t.strip()]
+    tickers = get_tickers()
 
     results = []
     for t in tickers:
