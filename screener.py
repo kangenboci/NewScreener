@@ -212,12 +212,7 @@ def main():
         row.append(last_price)
         screener_rows.append(row)
 
-        bandar_rows.append([t, bandar_proxy(df_1d)])
-
-        print(row)
-
-    if screener_rows or bandar_rows:
-        push_results(screener_rows, bandar_rows)
+        push_results(screener_rows)
 
 
 if __name__ == "__main__":
