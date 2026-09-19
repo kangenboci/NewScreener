@@ -143,6 +143,10 @@ def fetch(ticker: str, interval: str, period: str) -> pd.DataFrame:
                           progress=False, auto_adjust=False)
         if df.empty:
             return None
+        # newer yfinance returns MultiIndex columns (e.g. ('Close', 'BMRI.JK'))
+        # even for a single ticker - flatten so df["Close"] is a plain Series
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
         return df.dropna()
     except Exception as e:
         print(f"[WARN] fetch failed {ticker} {interval}: {e}")
