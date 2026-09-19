@@ -46,11 +46,6 @@ TIMEFRAMES = {
 
 SIG_TEXT = {3: "STRONG BUY", 2: "BUY", 1: "DIP BUY", 0: "Bullish", -1: "-"}
 
-# --- turnover-based "bandar" proxy (public price*volume data only) ---
-BANDAR_MA_SHORT = 10
-BANDAR_MA_LONG  = 20
-BANDAR_VALUE_MIN = 1_000_000_000  # IDR, same order of magnitude as the Stockbit rule
-
 
 def wilder_adx(df: pd.DataFrame, length: int = 14):
     high, low, close = df["High"], df["Low"], df["Close"]
@@ -147,6 +142,7 @@ def compute_signal(df: pd.DataFrame) -> int:
         return 0
     return -1
 
+
 def normalize_ticker(t: str) -> str:
     """IDX stocks need a .JK suffix for yfinance (e.g. BMRI -> BMRI.JK)."""
     t = t.strip().upper()
@@ -181,21 +177,20 @@ def get_tickers():
     return [normalize_ticker(t) for t in raw if t and t.strip()]
 
 
-def push_results(screener_rows, bandar_rows):
-    payload = {"secret": API_SECRET, "screener_rows": screener_rows, "bandar_rows": bandar_rows}
+def push_results(screener_rows):
+    payload = {"secret": API_SECRET, "screener_rows": screener_rows}
     r = requests.post(WEBAPP_URL, json=payload, timeout=60)
     r.raise_for_status()
     data = r.json()
     if "error" in data:
         raise RuntimeError(data["error"])
-    print(f"Updated screener={data.get('screener_updated', 0)} bandar={data.get('bandar_updated', 0)}")
+    print(f"Updated screener={data.get('screener_updated', 0)}")
 
 
 def main():
     tickers = get_tickers()
 
     screener_rows = []
-    bandar_rows = []
 
     for t in tickers:
         row = [t]
@@ -212,6 +207,9 @@ def main():
         row.append(last_price)
         screener_rows.append(row)
 
+        print(row)
+
+    if screener_rows:
         push_results(screener_rows)
 
 
