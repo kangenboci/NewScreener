@@ -1,0 +1,27 @@
+# Save this file at: .github/workflows/screener.yml  in your GitHub repo
+name: Stock Screener
+
+on:
+  schedule:
+    # every 15 min, 02:00-09:00 UTC, Mon-Fri  ≈ 09:00-16:00 WIB (IDX trading hours)
+    - cron: "*/15 2-9 * * 1-5"
+  workflow_dispatch: {}   # lets you trigger it manually from the Actions tab
+
+jobs:
+  run-screener:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run screener
+        env:
+          WEBAPP_URL: ${{ secrets.WEBAPP_URL }}
+          API_SECRET: ${{ secrets.API_SECRET }}
+        run: python screener.py
