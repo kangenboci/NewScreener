@@ -4,6 +4,12 @@ Pang Pang Manis - Multi-Timeframe Stock Screener (yfinance version)
 Talks to a Google Apps Script Web App instead of the Google Sheets API,
 so NO Google Cloud service account / credentials JSON is needed.
 
+Writes:
+  - Screener!A:D  ticker + signal per timeframe (15m/30m/1d)
+  - Screener!G    last close price
+  - Bandar!A:B    ticker + turnover-based accumulation proxy label
+                  (NOT real broker/bandar-flow data - see note below)
+
 Env vars (set as GitHub Actions secrets):
   WEBAPP_URL  - the Apps Script Web App /exec URL (see Code.gs)
   API_SECRET  - shared secret string, must match Script Properties in Apps Script
@@ -39,6 +45,11 @@ TIMEFRAMES = {
 }
 
 SIG_TEXT = {3: "STRONG BUY", 2: "BUY", 1: "DIP BUY", 0: "Bullish", -1: "-"}
+
+# --- turnover-based "bandar" proxy (public price*volume data only) ---
+BANDAR_MA_SHORT = 10
+BANDAR_MA_LONG  = 20
+BANDAR_VALUE_MIN = 1_000_000_000  # IDR, same order of magnitude as the Stockbit rule
 
 
 def wilder_adx(df: pd.DataFrame, length: int = 14):
@@ -137,6 +148,39 @@ def compute_signal(df: pd.DataFrame) -> int:
     return -1
 
 
+def bandar_proxy(df_1d: pd.DataFrame):
+    """Turnover (Close * Volume) based accumulation proxy - mimics the
+    4-rule shape of the Stockbit 'Bandar Value' screener but using ONLY
+    public price/volume data. This is NOT real broker/bandar order-flow
+    data; treat it as a liquidity/turnover heuristic, not ground truth."""
+    if df_1d is None or len(df_1d) < BANDAR_MA_LONG + 2:
+        return "-"
+
+    value = df_1d["Close"] * df_1d["Volume"]
+    ma_short = value.rolling(BANDAR_MA_SHORT).mean()
+    ma_long = value.rolling(BANDAR_MA_LONG).mean()
+
+    rule1 = bool(value.iloc[-1] > ma_long.iloc[-1])
+    rule2 = bool(ma_long.iloc[-1] > BANDAR_VALUE_MIN)
+    rule3 = bool(value.iloc[-2] <= value.iloc[-1])
+    rule4 = bool(ma_short.iloc[-1] > ma_long.iloc[-1])
+
+    score = sum([rule1, rule2, rule3, rule4])
+    if score == 4:
+        return f"Akumulasi Kuat ({score}/4)"
+    if score >= 2:
+        return f"Akumulasi ({score}/4)"
+    return "-"
+
+
+def normalize_ticker(t: str) -> str:
+    """IDX stocks need a .JK suffix for yfinance (e.g. BMRI -> BMRI.JK)."""
+    t = t.strip().upper()
+    if "." not in t:
+        t = f"{t}.JK"
+    return t
+
+
 def fetch(ticker: str, interval: str, period: str) -> pd.DataFrame:
     try:
         df = yf.download(ticker, period=period, interval=interval,
@@ -153,15 +197,6 @@ def fetch(ticker: str, interval: str, period: str) -> pd.DataFrame:
         return None
 
 
-def normalize_ticker(t: str) -> str:
-    """IDX stocks need a .JK suffix for yfinance (e.g. BMRI -> BMRI.JK).
-    Leaves tickers that already have a suffix (e.g. .JK, .US) untouched."""
-    t = t.strip().upper()
-    if "." not in t:
-        t = f"{t}.JK"
-    return t
-
-
 def get_tickers():
     r = requests.get(WEBAPP_URL, params={"secret": API_SECRET}, timeout=30)
     r.raise_for_status()
@@ -172,31 +207,43 @@ def get_tickers():
     return [normalize_ticker(t) for t in raw if t and t.strip()]
 
 
-def push_results(rows):
-    r = requests.post(WEBAPP_URL, json={"secret": API_SECRET, "rows": rows}, timeout=30)
+def push_results(screener_rows, bandar_rows):
+    payload = {"secret": API_SECRET, "screener_rows": screener_rows, "bandar_rows": bandar_rows}
+    r = requests.post(WEBAPP_URL, json=payload, timeout=60)
     r.raise_for_status()
     data = r.json()
     if "error" in data:
         raise RuntimeError(data["error"])
-    print(f"Updated {data.get('updated', 0)} rows")
+    print(f"Updated screener={data.get('screener_updated', 0)} bandar={data.get('bandar_updated', 0)}")
 
 
 def main():
     tickers = get_tickers()
 
-    results = []
+    screener_rows = []
+    bandar_rows = []
+
     for t in tickers:
         row = [t]
+        dfs = {}
         for tf, cfg in TIMEFRAMES.items():
             df = fetch(t, cfg["interval"], cfg["period"])
+            dfs[tf] = df
             code = compute_signal(df)
             row.append(SIG_TEXT[code])
             time.sleep(0.3)  # be gentle with Yahoo's rate limits
-        results.append(row)
+
+        df_1d = dfs.get("1d")
+        last_price = float(df_1d["Close"].iloc[-1]) if df_1d is not None and len(df_1d) else ""
+        row.append(last_price)
+        screener_rows.append(row)
+
+        bandar_rows.append([t, bandar_proxy(df_1d)])
+
         print(row)
 
-    if results:
-        push_results(results)
+    if screener_rows or bandar_rows:
+        push_results(screener_rows, bandar_rows)
 
 
 if __name__ == "__main__":
