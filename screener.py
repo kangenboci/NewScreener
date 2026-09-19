@@ -147,32 +147,6 @@ def compute_signal(df: pd.DataFrame) -> int:
         return 0
     return -1
 
-
-def bandar_proxy(df_1d: pd.DataFrame):
-    """Turnover (Close * Volume) based accumulation proxy - mimics the
-    4-rule shape of the Stockbit 'Bandar Value' screener but using ONLY
-    public price/volume data. This is NOT real broker/bandar order-flow
-    data; treat it as a liquidity/turnover heuristic, not ground truth."""
-    if df_1d is None or len(df_1d) < BANDAR_MA_LONG + 2:
-        return "-"
-
-    value = df_1d["Close"] * df_1d["Volume"]
-    ma_short = value.rolling(BANDAR_MA_SHORT).mean()
-    ma_long = value.rolling(BANDAR_MA_LONG).mean()
-
-    rule1 = bool(value.iloc[-1] > ma_long.iloc[-1])
-    rule2 = bool(ma_long.iloc[-1] > BANDAR_VALUE_MIN)
-    rule3 = bool(value.iloc[-2] <= value.iloc[-1])
-    rule4 = bool(ma_short.iloc[-1] > ma_long.iloc[-1])
-
-    score = sum([rule1, rule2, rule3, rule4])
-    if score == 4:
-        return f"Akumulasi Kuat ({score}/4)"
-    if score >= 2:
-        return f"Akumulasi ({score}/4)"
-    return "-"
-
-
 def normalize_ticker(t: str) -> str:
     """IDX stocks need a .JK suffix for yfinance (e.g. BMRI -> BMRI.JK)."""
     t = t.strip().upper()
